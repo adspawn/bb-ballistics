@@ -4,7 +4,7 @@ An advanced 3D BB trajectory simulator for airsoft ballistics, based on modern f
 
 
 ## 🚀 Live Demo
-*(Replace this with your GitHub Pages URL once hosted, e.g., `https://<your-username>.github.io/bb-ballistics/`)*
+*(Replace this with your GitHub Pages URL once hosted, e.g., `https://adspawn.github.io/bb-ballistics/`)*
 
 ---
 
