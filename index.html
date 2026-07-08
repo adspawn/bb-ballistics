@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BB弾 弾道シミュレーター</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root{
+    --bg:#0e1214; --panel:#161c1f; --panel2:#1b2226; --line:#2a3439;
+    --text:#d9e2e4; --muted:#84959b; --dim:#5a6a70;
+    --tracer:#8cff5e; --tracer-dim:#4c9c38; --amber:#ffb454; --red:#ff6a5e;
+    --mono:"SFMono-Regular",ui-monospace,"Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--text); font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif; font-size:14px; line-height:1.55;}
+  header{display:flex; align-items:baseline; gap:14px; padding:16px 22px 12px; border-bottom:1px solid var(--line);}
+  header h1{font-size:19px; font-weight:700; letter-spacing:.06em;}
+  header .sub{color:var(--muted); font-size:12px;}
+  header{flex-wrap:wrap;}
+  a.powered{margin-left:auto; display:flex; align-items:center; gap:8px; font-size:11px; letter-spacing:.05em; color:var(--muted); text-decoration:none;}
+  a.powered:hover{color:var(--text); text-decoration:underline;}
+  a.powered img{height:30px; background:#f6f1e6; border-radius:6px; padding:3px 7px; display:block;}
+  .wrap{display:grid; grid-template-columns:318px 1fr; gap:16px; padding:16px 22px 40px; max-width:1500px; margin:0 auto;}
+  @media(max-width:920px){ .wrap{grid-template-columns:1fr;} }
+
+  /* ---- controls ---- */
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px;}
+  .ctrl + .ctrl{margin-top:18px; padding-top:16px; border-top:1px solid var(--line);}
+  label.head{display:flex; justify-content:space-between; align-items:baseline; font-size:12px; letter-spacing:.08em; color:var(--muted); margin-bottom:8px;}
+  label.head .val{font-family:var(--mono); font-size:15px; color:var(--text);}
+  label.head .val em{font-style:normal; font-size:11px; color:var(--dim); margin-left:2px;}
+  input[type=range]{width:100%; accent-color:var(--tracer); height:22px;}
+  input[type=number]{width:78px; background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 6px; font-family:var(--mono); font-size:13px;}
+  input[type=number]:focus,select:focus{outline:1px solid var(--tracer-dim);}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--line); color:var(--muted); border-radius:6px; padding:4px 9px; font-family:var(--mono); font-size:12.5px; cursor:pointer;}
+  .chip:hover{border-color:var(--tracer-dim); color:var(--text);}
+  .chip.on{background:#233026; border-color:var(--tracer-dim); color:var(--tracer);}
+  .rowline{display:flex; align-items:center; gap:8px; margin-top:8px;}
+  .rowline .lbl{font-size:12px; color:var(--muted); min-width:64px;}
+  select{background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 6px; font-size:12.5px;}
+  .note{font-size:11.5px; color:var(--dim); margin-top:7px;}
+  .energy-badge{display:inline-block; font-family:var(--mono); font-size:12px; border-radius:5px; padding:2px 8px; margin-left:8px; vertical-align:1px;}
+  .energy-ok{background:#1d2f22; color:var(--tracer); border:1px solid var(--tracer-dim);}
+  .energy-ng{background:#33201d; color:var(--red); border:1px solid #7a3a34;}
+  details.adv summary{cursor:pointer; color:var(--muted); font-size:12px; letter-spacing:.08em;}
+  details.adv[open] summary{margin-bottom:10px;}
+
+  /* ---- 3D view ---- */
+  .view3d{position:relative; background:#0b0f11; border:1px solid var(--line); border-radius:10px; overflow:hidden; height:430px;}
+  .view3d canvas{display:block;}
+  .hud{position:absolute; top:10px; left:12px; font-family:var(--mono); font-size:12px; color:var(--tracer); text-shadow:0 0 6px rgba(140,255,94,.45); pointer-events:none; line-height:1.7; letter-spacing:.04em;}
+  .hud .dim{color:var(--muted); text-shadow:none;}
+  .view-ctl{position:absolute; right:10px; top:10px; display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;}
+  .view-ctl .chip{backdrop-filter:blur(3px); background:rgba(22,28,31,.8);}
+  .fireline{position:absolute; left:12px; bottom:10px; display:flex; gap:8px; align-items:center;}
+  button.fire{background:#233026; color:var(--tracer); border:1px solid var(--tracer-dim); border-radius:7px; padding:7px 18px; font-size:14px; font-weight:700; letter-spacing:.2em; cursor:pointer; font-family:var(--mono);}
+  button.fire:hover{background:#2c3d2f;}
+  .threefail{position:absolute; inset:0; display:none; align-items:center; justify-content:center; color:var(--muted); font-size:13px; padding:20px; text-align:center;}
+
+  /* ---- stats ---- */
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(138px,1fr)); gap:10px; margin-top:14px;}
+  .stat{background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:10px 12px;}
+  .stat .k{font-size:11px; color:var(--muted); letter-spacing:.07em;}
+  .stat .v{font-family:var(--mono); font-size:19px; margin-top:3px; color:var(--text);}
+  .stat .v small{font-size:11px; color:var(--dim); margin-left:2px;}
+  .stat.hi .v{color:var(--tracer);}
+
+  /* ---- chart & table ---- */
+  h2.sec{font-size:13px; letter-spacing:.1em; color:var(--muted); margin:22px 0 8px; font-weight:600;}
+  #chart{width:100%; height:280px; background:var(--panel); border:1px solid var(--line); border-radius:10px; display:block; cursor:crosshair;}
+  .legend{display:flex; gap:16px; font-size:11.5px; color:var(--muted); margin-top:6px; flex-wrap:wrap;}
+  .legend i{display:inline-block; width:18px; height:0; border-top:2px solid; margin-right:5px; vertical-align:3px;}
+  table{width:100%; border-collapse:collapse; font-family:var(--mono); font-size:12.5px;}
+  th,td{text-align:right; padding:6px 10px; border-bottom:1px solid var(--line);}
+  th{color:var(--muted); font-weight:500; font-size:11.5px; letter-spacing:.05em;}
+  td:first-child,th:first-child{text-align:left; color:var(--muted);}
+  tbody tr:hover{background:var(--panel2);}
+  .tblwrap{background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:auto; max-height:320px;}
+  footer{color:var(--dim); font-size:11.5px; padding:0 22px 30px; max-width:1500px; margin:0 auto;}
+  footer a{color:var(--muted);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>BB弾 弾道シミュレーター</h1>
+  <span class="sub">初速 × 弾重量 × ホップ回転(マグヌス効果)から弾道を計算</span>
+  <a class="powered" href="http://fukuokasabageland.com" target="_blank" rel="noopener">
+    <span>Powered by 福岡サバゲーランド</span>
+    <img src="data:image/png;base64,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" alt="福岡サバゲーランド FUKUOKA SURVIVALGAME FIELD">
+  </a>
+</header>
+
+<div class="wrap">
+  <!-- ================= 入力パネル ================= -->
+  <div class="panel" id="controls">
+
+    <div class="ctrl">
+      <label class="head">初速 (銃口速度)
+        <span class="val"><span id="v0Val">95.0</span><em>m/s</em></span>
+      </label>
+      <input type="range" id="v0Range" min="30" max="150" step="0.5" value="95">
+      <div class="rowline">
+        <span class="lbl">直接入力</span>
+        <input type="number" id="v0Num" min="1" max="300" step="0.1" value="95">
+        <span id="energyBadge" class="energy-badge energy-ok">0.90 J</span>
+      </div>
+      <div class="note">エネルギー E = ½mv²。日本の法規制上限は 0.98J(6mm・銃口エネルギー約3.5J/cm²換算)。</div>
+    </div>
+
+    <div class="ctrl">
+      <label class="head">BB弾の重さ
+        <span class="val"><span id="massVal">0.20</span><em>g</em></span>
+      </label>
+      <div class="chips" id="massChips"></div>
+      <div class="rowline">
+        <span class="lbl">直接入力</span>
+        <input type="number" id="massNum" min="0.05" max="1.0" step="0.01" value="0.20">
+        <span class="lbl">g</span>
+      </div>
+    </div>
+
+    <div class="ctrl">
+      <label class="head">ホップアップ回転数 (バックスピン)
+        <span class="val"><span id="spinVal">—</span><em>回転/秒</em></span>
+      </label>
+      <div class="chips" id="hopChips">
+        <button class="chip on" data-hop="auto">最適 (自動)</button>
+        <button class="chip" data-hop="z30">30mゼロイン</button>
+        <button class="chip" data-hop="z40">40mゼロイン</button>
+        <button class="chip" data-hop="manual">手動</button>
+      </div>
+      <div id="manualSpinBox" style="display:none; margin-top:10px;">
+        <input type="range" id="spinRange" min="0" max="500" step="1" value="208">
+        <div class="rowline">
+          <span class="lbl">直接入力</span>
+          <input type="number" id="spinNum" min="0" max="1000" step="1" value="208">
+          <span class="lbl">回転/秒</span>
+        </div>
+      </div>
+      <div class="note" id="hopNote">「最適」は射線から浮き上がらないギリギリの回転数(最も遠くまで届くフラット弾道)を自動計算します。</div>
+    </div>
+
+    <div class="ctrl">
+      <label class="head">射出高さ
+        <span class="val"><span id="h0Val">1.0</span><em>m</em></span>
+      </label>
+      <input type="range" id="h0Range" min="0.2" max="2.0" step="0.1" value="1.0">
+    </div>
+
+    <div class="ctrl">
+      <label class="head">仰角 (撃ち上げ角度)
+        <span class="val"><span id="angVal">0.0</span><em>°</em></span>
+      </label>
+      <input type="range" id="angRange" min="-5" max="45" step="0.5" value="0">
+      <div class="note">最大飛距離を狙うなら約20〜23°。0.9J・0.25g・22.6°で約82mまで届きます。</div>
+    </div>
+
+    <div class="ctrl">
+      <details class="adv">
+        <summary>詳細設定</summary>
+        <div class="rowline">
+          <span class="lbl">空気抵抗</span>
+          <select id="dragModel">
+            <option value="morrison" selected>記事準拠 (Morrison, Cd≈0.40)</option>
+            <option value="loth">新式 (Loth 2021, Cd≈0.45)</option>
+          </select>
+        </div>
+        <div class="note">「記事準拠」はハイパー道楽の記事(2019)の計算値をほぼ再現します。「新式」は監修者シキノ氏が現在推奨する、BB弾速度域でより精度の高い抗力係数です。</div>
+        <div class="note" style="margin-top:6px;">条件: BB弾直径5.95mm・気温20℃・1気圧・無風。揚力係数 C<sub>l</sub>=0.12、回転減衰は摩擦抗力モデル(C<sub>f</sub>=1.328/√Re)。</div>
+      </details>
+    </div>
+  </div>
+
+  <!-- ================= 表示エリア ================= -->
+  <div>
+    <div class="view3d" id="view3d">
+      <div class="hud" id="hud"></div>
+      <div class="view-ctl">
+        <button class="chip on" data-cam="chase">追尾</button>
+        <button class="chip" data-cam="side">全体</button>
+        <button class="chip" data-cam="free">自由視点</button>
+        <select id="speedSel" class="chip" style="cursor:pointer;">
+          <option value="1">等速</option>
+          <option value="0.25" selected>スロー ¼×</option>
+          <option value="0.05">超スロー 1/20×</option>
+        </select>
+      </div>
+      <div class="fireline">
+        <button class="fire" id="fireBtn">▶ 発射</button>
+      </div>
+      <div class="threefail" id="threefail">3D表示ライブラリを読み込めませんでした。<br>弾道グラフと数値結果は下でご覧いただけます。</div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <h2 class="sec">弾道グラフ (高さ:距離 = 1:10 表示)</h2>
+    <canvas id="chart"></canvas>
+    <div class="legend">
+      <span><i style="border-color:var(--tracer)"></i>ホップ弾道</span>
+      <span><i style="border-color:#5a6a70; border-top-style:dashed;"></i>ホップ回転0</span>
+      <span><i style="border-color:#3a4a50; border-top-style:dotted;"></i>射線 (発射方向の直線)</span>
+      <span style="color:var(--dim)">グラフ上をなぞると各地点の数値を表示</span>
+    </div>
+
+    <h2 class="sec">距離ごとの弾速・エネルギー減衰</h2>
+    <div class="tblwrap">
+      <table>
+        <thead><tr><th>距離</th><th>通過時間 [s]</th><th>高さ [m]</th><th>弾速 [m/s]</th><th>エネルギー [J]</th></tr></thead>
+        <tbody id="tblBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<footer>
+  Powered by <a href="http://fukuokasabageland.com" target="_blank" rel="noopener">福岡サバゲーランド</a> /
+  物理モデル出典: <a href="https://www.hyperdouraku.com/colum/ballistics/" target="_blank" rel="noopener">ハイパー道楽「BB弾の弾道学」</a> /
+  弾道計算理論: <a href="https://slpr.sakura.ne.jp/sikinote/docs/airsoft/airsoft-physics/" target="_blank" rel="noopener">シキノート</a>。
+  重力・空気抵抗・マグヌス力・回転減衰を数値積分で計算しています(コリオリ力・風は考慮しません)。3D表示のBB弾サイズと発光は視認性のため誇張しています。
+</footer>
+
+<script>
+"use strict";
+/* ============================================================
+   物理モデル
+   m r'' = -mg e_z - ½Cd ρπR² v·v - Cl(4/3)πR³·2ρ (v × ω)
+   I ω'  = -½Cf ρR²(8πR²/3)·√(v² + (cRω)²)·ω
+   ============================================================ */
+const ENV = { rho:1.205, eta:1.822e-5, g:9.80665, d:5.95e-3, Cl:0.12, c:0.5, snd:343 };
+ENV.R = ENV.d/2;
+ENV.A = Math.PI*ENV.R*ENV.R;
+
+function cdMorrison(v){
+  const Re = ENV.rho*v*ENV.d/ENV.eta;
+  return 24/Re
+    + 2.6*(Re/5)/(1+Math.pow(Re/5,1.52))
+    + 0.411*Math.pow(Re/263000,-7.94)/(1+Math.pow(Re/263000,-8.0))
+    + Math.pow(Re,0.80)/461000;
+}
+function cdLoth(v){
+  const Re = ENV.rho*v*ENV.d/ENV.eta, Ma = v/ENV.snd;
+  const CM = Ma<1.5 ? 1.65+0.65*Math.tanh(4*Ma-3.4) : 2.18-0.13*Math.tanh(0.9*Ma-2.7);
+  const GM = Ma<0.8 ? 166*Ma**3+3.29*Ma*Ma-10.9*Ma+20 : 5+40*Math.pow(Ma,-3);
+  const HM = Ma<1 ? 0.0239*Ma**3+0.212*Ma*Ma-0.074*Ma+1 : 0.93+1/(3.5+Ma**5);
+  return 24/Re*(1+0.15*Math.pow(Re,0.687))*HM
+    + 0.42*CM/(1 + 42500/Math.pow(Re,1.16*CM) + GM/Math.sqrt(Re));
+}
+
+/** 弾道シミュレーション。x:前方, z:上方(地面=0)。戻り値 pts は 2ms 間隔サンプル。 */
+function simulate(o){
+  const m = o.massG*1e-3;
+  const I = 0.4*m*ENV.R*ENV.R;
+  const cdf = o.drag==="loth" ? cdLoth : cdMorrison;
+  const th = o.angleDeg*Math.PI/180;
+  const tanTh = Math.tan(th);
+  let x=0, z=o.h0, vx=o.v0*Math.cos(th), vz=o.v0*Math.sin(th);
+  let w = 2*Math.PI*o.spinRps, t=0;
+  const dt = 1e-4, sampleEvery = 20;         // 2ms sampling
+  const kMag = ENV.Cl*(4/3)*Math.PI*ENV.R**3*2*ENV.rho;
+  const pts = [{t:0,x:0,z:o.h0,v:o.v0,w:o.spinRps}];
+  let maxRise = 0, riseX = 0, maxH = o.h0, zeroIn = null;
+  let prevX=x, prevZ=z, prevT=0, step=0;
+  const line = (X)=> o.h0 + tanTh*X;
+
+  while (z>0 && t<12 && x<400){
+    const v = Math.hypot(vx,vz);
+    const Fd = 0.5*cdf(v)*ENV.rho*ENV.A*v;
+    // マグヌス: バックスピン軸 = -y → (v×ω) の結果、揚力は速度に垂直・上向き成分
+    const Fmx = -kMag*(vz*w);
+    const Fmz =  kMag*(vx*w);
+    const ax = (-Fd*vx + Fmx)/m;
+    const az = -ENV.g + (-Fd*vz + Fmz)/m;
+    const Re = ENV.rho*v*ENV.d/ENV.eta;
+    const Cf = 1.328/Math.sqrt(Re);
+    const dw = -0.5*Cf*ENV.rho*ENV.R*ENV.R*(8*Math.PI*ENV.R*ENV.R/3)
+               * Math.sqrt(v*v + (ENV.c*ENV.R*w)**2) * w / I;
+    prevX=x; prevZ=z; prevT=t;
+    vx+=ax*dt; vz+=az*dt; x+=vx*dt; z+=vz*dt; w=Math.max(0,w+dw*dt); t+=dt;
+    step++;
+
+    const rise = z - line(x);
+    if (rise>maxRise){ maxRise=rise; riseX=x; }
+    if (z>maxH) maxH=z;
+    // ゼロイン: 射線を上から下へ再通過する点
+    if (zeroIn===null && x>0.5 && (prevZ-line(prevX))>0 && rise<=0){
+      const f = (prevZ-line(prevX)) / ((prevZ-line(prevX)) - rise);
+      zeroIn = prevX + f*(x-prevX);
+    }
+    if (step%sampleEvery===0) pts.push({t, x, z, v:Math.hypot(vx,vz), w:w/(2*Math.PI)});
+  }
+  // 着地点を線形補間
+  let landX=x, landT=t, landV=Math.hypot(vx,vz);
+  if (z<=0 && prevZ>0){
+    const f = prevZ/(prevZ - z);
+    landX = prevX + f*(x-prevX);
+    landT = prevT + f*dt;
+  }
+  pts.push({t:landT, x:landX, z:0, v:landV, w:w/(2*Math.PI)});
+  return { pts, landX, landT, landV, maxRise, riseX, maxH, zeroIn,
+           landE:0.5*(o.massG*1e-3)*landV*landV };
+}
+
+/** 最適ホップ: 射線から ~5mm 以上浮き上がらない最大回転数(二分探索) */
+function solveOptimalSpin(o){
+  let lo=0, hi=800;
+  for(let i=0;i<26;i++){
+    const mid=(lo+hi)/2;
+    const r = simulate({...o, spinRps:mid});
+    if (r.maxRise > 0.005) hi=mid; else lo=mid;
+  }
+  return lo;
+}
+/** 指定距離ゼロイン回転数(二分探索)。届かない場合は null */
+function solveZeroInSpin(o, dist){
+  const heightAt = (spin)=>{
+    const r = simulate({...o, spinRps:spin});
+    if (r.landX < dist) return -1e9;               // 届かない
+    // 距離 dist における射線からの高さ
+    const tanTh = Math.tan(o.angleDeg*Math.PI/180);
+    for(let i=1;i<r.pts.length;i++){
+      if (r.pts[i].x>=dist){
+        const a=r.pts[i-1], b=r.pts[i], f=(dist-a.x)/(b.x-a.x);
+        return (a.z+f*(b.z-a.z)) - (o.h0+tanTh*dist);
+      }
+    }
+    return -1e9;
+  };
+  if (heightAt(800) < 0) return null;              // 最大回転でも届かない
+  let lo=0, hi=800;
+  for(let i=0;i<26;i++){
+    const mid=(lo+hi)/2;
+    if (heightAt(mid) < 0) lo=mid; else hi=mid;
+  }
+  return hi;
+}
+
+/* ============================================================
+   状態と再計算
+   ============================================================ */
+const S = {
+  v0:95, massG:0.20, h0:1.0, angleDeg:0,
+  hopMode:"auto", manualSpin:208, drag:"morrison",
+  spinRps:0, result:null, resultNoHop:null,
+};
+const $ = (id)=>document.getElementById(id);
+const fmt = (x,n=1)=> x==null ? "—" : x.toFixed(n);
+
+function recompute(){
+  const base = { v0:S.v0, massG:S.massG, h0:S.h0, angleDeg:S.angleDeg, drag:S.drag };
+  let spin, note="";
+  if (S.hopMode==="auto"){
+    spin = solveOptimalSpin(base);
+    note = "「最適」= 射線から浮き上がらないギリギリの回転数を自動計算(最長フラット弾道)。";
+  } else if (S.hopMode==="z30" || S.hopMode==="z40"){
+    const d = S.hopMode==="z30" ? 30 : 40;
+    const s = solveZeroInSpin(base, d);
+    if (s===null){ spin = solveOptimalSpin(base); note = `この初速・重量では${d}mに届かないため、最適回転にフォールバックしました。`; }
+    else { spin = s; note = `${d}m先で射線と再交差(ゼロイン)する回転数を自動計算しています。`; }
+  } else {
+    spin = S.manualSpin;
+    note = "手動: マグヌス効果による揚力は回転数×弾速に比例します。";
+  }
+  S.spinRps = spin;
+  S.result = simulate({...base, spinRps:spin});
+  S.resultNoHop = simulate({...base, spinRps:0});
+  $("hopNote").textContent = note;
+  $("spinVal").textContent = Math.round(spin);
+  if (S.hopMode!=="manual"){ $("spinRange").value = Math.min(500,Math.round(spin)); $("spinNum").value = Math.round(spin); }
+
+  const E = 0.5*S.massG*1e-3*S.v0*S.v0;
+  const badge = $("energyBadge");
+  badge.textContent = E.toFixed(2)+" J" + (E>0.98 ? " 規制超過" : "");
+  badge.className = "energy-badge " + (E>0.98 ? "energy-ng" : "energy-ok");
+
+  renderStats(E);
+  drawChart();
+  renderTable();
+  rebuild3D();
+}
+
+function renderStats(E){
+  const r = S.result;
+  const rows = [
+    {k:"銃口エネルギー", v:E.toFixed(2), u:"J"},
+    {k:"ホップ回転数", v:Math.round(S.spinRps), u:"回転/秒", hi:true},
+    {k:"最大飛距離 (落下地点)", v:fmt(r.landX,1), u:"m", hi:true},
+    {k:"ゼロイン距離", v:r.zeroIn?fmt(r.zeroIn,1):"—", u:r.zeroIn?"m":""},
+    {k:"射線からの最大浮き上がり", v:fmt(r.maxRise*100,1), u:"cm"},
+    {k:"滞空時間", v:fmt(r.landT,2), u:"s"},
+    {k:"落下時の弾速", v:fmt(r.landV,1), u:"m/s"},
+    {k:"落下時エネルギー", v:fmt(r.landE,2), u:"J"},
+  ];
+  $("stats").innerHTML = rows.map(s=>
+    `<div class="stat${s.hi?" hi":""}"><div class="k">${s.k}</div><div class="v">${s.v}<small>${s.u}</small></div></div>`).join("");
+}
+
+/* ============================================================
+   2D 弾道グラフ
+   ============================================================ */
+const chart = $("chart");
+const ctx2d = chart.getContext("2d");
+let chartMap = null;
+
+function drawChart(hover=null){
+  const dpr = window.devicePixelRatio||1;
+  const W = chart.clientWidth, H = 280;
+  chart.width=W*dpr; chart.height=H*dpr; ctx2d.setTransform(dpr,0,0,dpr,0,0);
+  ctx2d.clearRect(0,0,W,H);
+  const r=S.result; if(!r) return;
+  const padL=44, padR=14, padT=14, padB=28;
+  const xMax = Math.max(10, Math.ceil(r.landX*1.06/5)*5);
+  const yMax = Math.max(2, Math.ceil((r.maxH+0.4)*2)/2);
+  const sx = (W-padL-padR)/xMax, sy=(H-padT-padB)/yMax;
+  const X=(x)=>padL+x*sx, Y=(z)=>H-padB-z*sy;
+  chartMap = {X,Y,xMax,yMax,padL,padR,padT,padB,W,H};
+
+  // grid
+  ctx2d.strokeStyle="#212a2f"; ctx2d.fillStyle="#5a6a70";
+  ctx2d.font="10.5px "+getComputedStyle(document.body).getPropertyValue("--mono");
+  ctx2d.lineWidth=1;
+  const xStep = xMax>60?10:5;
+  for(let gx=0; gx<=xMax; gx+=xStep){
+    ctx2d.beginPath(); ctx2d.moveTo(X(gx),padT); ctx2d.lineTo(X(gx),H-padB); ctx2d.stroke();
+    ctx2d.textAlign="center"; ctx2d.fillText(gx+"m", X(gx), H-padB+15);
+  }
+  const yStep = yMax>6?2:(yMax>3?1:0.5);
+  for(let gz=0; gz<=yMax+1e-9; gz+=yStep){
+    ctx2d.beginPath(); ctx2d.moveTo(padL,Y(gz)); ctx2d.lineTo(W-padR,Y(gz)); ctx2d.stroke();
+    ctx2d.textAlign="right"; ctx2d.fillText(gz.toFixed(yStep<1?1:0), padL-6, Y(gz)+3.5);
+  }
+  // ground
+  ctx2d.strokeStyle="#3a4a3c"; ctx2d.lineWidth=1.5;
+  ctx2d.beginPath(); ctx2d.moveTo(padL,Y(0)); ctx2d.lineTo(W-padR,Y(0)); ctx2d.stroke();
+
+  // 射線
+  const tanTh=Math.tan(S.angleDeg*Math.PI/180);
+  ctx2d.strokeStyle="#3a4a50"; ctx2d.setLineDash([2,4]); ctx2d.lineWidth=1;
+  ctx2d.beginPath(); ctx2d.moveTo(X(0),Y(S.h0)); ctx2d.lineTo(X(xMax),Y(Math.max(0,Math.min(yMax,S.h0+tanTh*xMax)))); ctx2d.stroke();
+
+  // ホップ0
+  ctx2d.strokeStyle="#5a6a70"; ctx2d.setLineDash([6,5]);
+  ctx2d.beginPath();
+  S.resultNoHop.pts.forEach((p,i)=>{ i?ctx2d.lineTo(X(p.x),Y(p.z)):ctx2d.moveTo(X(p.x),Y(p.z)); });
+  ctx2d.stroke(); ctx2d.setLineDash([]);
+
+  // main trajectory (glow)
+  ctx2d.strokeStyle="rgba(140,255,94,.25)"; ctx2d.lineWidth=5;
+  ctx2d.beginPath(); r.pts.forEach((p,i)=>{ i?ctx2d.lineTo(X(p.x),Y(p.z)):ctx2d.moveTo(X(p.x),Y(p.z)); }); ctx2d.stroke();
+  ctx2d.strokeStyle="#8cff5e"; ctx2d.lineWidth=1.8;
+  ctx2d.beginPath(); r.pts.forEach((p,i)=>{ i?ctx2d.lineTo(X(p.x),Y(p.z)):ctx2d.moveTo(X(p.x),Y(p.z)); }); ctx2d.stroke();
+
+  // zero-in marker
+  if (r.zeroIn){
+    ctx2d.fillStyle="#ffb454";
+    ctx2d.beginPath(); ctx2d.arc(X(r.zeroIn),Y(S.h0+tanTh*r.zeroIn),3.5,0,7); ctx2d.fill();
+  }
+  // hover
+  if (hover){
+    ctx2d.strokeStyle="#84959b"; ctx2d.setLineDash([3,3]);
+    ctx2d.beginPath(); ctx2d.moveTo(X(hover.x),padT); ctx2d.lineTo(X(hover.x),H-padB); ctx2d.stroke(); ctx2d.setLineDash([]);
+    ctx2d.fillStyle="#8cff5e";
+    ctx2d.beginPath(); ctx2d.arc(X(hover.x),Y(hover.z),4,0,7); ctx2d.fill();
+    const lines=[ fmt(hover.x,1)+" m", "高さ "+fmt(hover.z,2)+" m", "弾速 "+fmt(hover.v,1)+" m/s",
+      "時間 "+fmt(hover.t,3)+" s", "E "+fmt(0.5*S.massG*1e-3*hover.v*hover.v,2)+" J", "回転 "+Math.round(hover.w)+" r/s"];
+    const bw=110, bh=lines.length*15+10;
+    let bx=X(hover.x)+12; if(bx+bw>W-6) bx=X(hover.x)-bw-12;
+    let by=Math.max(padT, Y(hover.z)-bh/2);
+    ctx2d.fillStyle="rgba(17,22,25,.92)"; ctx2d.strokeStyle="#2a3439";
+    ctx2d.beginPath(); ctx2d.roundRect(bx,by,bw,bh,6); ctx2d.fill(); ctx2d.stroke();
+    ctx2d.fillStyle="#d9e2e4"; ctx2d.textAlign="left";
+    lines.forEach((s,i)=>ctx2d.fillText(s,bx+9,by+18+i*15));
+  }
+}
+chart.addEventListener("mousemove",(e)=>{
+  if(!chartMap||!S.result) return;
+  const rect=chart.getBoundingClientRect();
+  const mx=(e.clientX-rect.left - chartMap.padL)/((chartMap.W-chartMap.padL-chartMap.padR)/chartMap.xMax);
+  let best=null,bd=1e9;
+  for(const p of S.result.pts){ const d=Math.abs(p.x-mx); if(d<bd){bd=d;best=p;} }
+  drawChart(bd<3?best:null);
+});
+chart.addEventListener("mouseleave",()=>drawChart());
+
+/* ============================================================
+   テーブル
+   ============================================================ */
+function renderTable(){
+  const r=S.result, m=S.massG*1e-3, rows=[];
+  const at=(D)=>{ for(let i=1;i<r.pts.length;i++){ if(r.pts[i].x>=D){
+      const a=r.pts[i-1],b=r.pts[i],f=(D-a.x)/(b.x-a.x||1);
+      return {t:a.t+f*(b.t-a.t), z:a.z+f*(b.z-a.z), v:a.v+f*(b.v-a.v)}; } } return null; };
+  for(let D=5; D<=r.landX; D+=5){
+    const p=at(D); if(!p) break;
+    rows.push(`<tr><td>${D} m</td><td>${p.t.toFixed(3)}</td><td>${p.z.toFixed(2)}</td><td>${p.v.toFixed(1)}</td><td>${(0.5*m*p.v*p.v).toFixed(3)}</td></tr>`);
+  }
+  rows.push(`<tr><td>落下 ${r.landX.toFixed(1)} m</td><td>${r.landT.toFixed(3)}</td><td>0.00</td><td>${r.landV.toFixed(1)}</td><td>${r.landE.toFixed(3)}</td></tr>`);
+  $("tblBody").innerHTML = rows.join("");
+}
+
+/* ============================================================
+   3D ビュー (Three.js)
+   ============================================================ */
+let T3 = null;   // three objects
+let play = { t:0, playing:false, speed:0.25, camMode:"chase", impactT:-1 };
+let orbit = { yaw:-0.9, pitch:0.32, dist:30, dragging:false, lx:0, ly:0 };
+
+function makeTextSprite(text, color="#84959b", size=42){
+  const c=document.createElement("canvas"); c.width=256; c.height=96;
+  const g=c.getContext("2d");
+  g.font=`bold ${size}px Consolas, monospace`; g.textAlign="center"; g.textBaseline="middle";
+  g.fillStyle=color; g.fillText(text,128,48);
+  const tex=new THREE.CanvasTexture(c); tex.minFilter=THREE.LinearFilter;
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex, transparent:true, depthWrite:false}));
+  sp.scale.set(4.6,1.7,1);
+  return sp;
+}
+
+function init3D(){
+  if (typeof THREE==="undefined"){ $("threefail").style.display="flex"; return; }
+  const box=$("view3d");
+  const renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
+  renderer.setSize(box.clientWidth, box.clientHeight);
+  box.insertBefore(renderer.domElement, box.firstChild);
+
+  const scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x0b0f11);
+  scene.fog=new THREE.Fog(0x0b0f11, 70, 240);
+
+  const cam=new THREE.PerspectiveCamera(55, box.clientWidth/box.clientHeight, 0.05, 600);
+  cam.position.set(-4,2.4,5); cam.lookAt(10,1,0);
+
+  scene.add(new THREE.HemisphereLight(0x8aa3b0, 0x1a2018, 0.9));
+  const dl=new THREE.DirectionalLight(0xfff2dd, 0.7); dl.position.set(-30,60,40); scene.add(dl);
+
+  // 地面
+  const ground=new THREE.Mesh(new THREE.PlaneGeometry(420,90),
+    new THREE.MeshLambertMaterial({color:0x18211b}));
+  ground.rotation.x=-Math.PI/2; ground.position.set(140,0,0); scene.add(ground);
+
+  // グリッド(5m毎)+ センターライン
+  const gv=[];
+  for(let gx=0; gx<=200; gx+=5){ gv.push(gx,0.01,-20, gx,0.01,20); }
+  for(let gy=-20; gy<=20; gy+=5){ gv.push(0,0.01,gy, 200,0.01,gy); }
+  const gg=new THREE.BufferGeometry();
+  gg.setAttribute("position", new THREE.Float32BufferAttribute(gv,3));
+  scene.add(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({color:0x24312a, transparent:true, opacity:.8})));
+  const cl=new THREE.BufferGeometry();
+  cl.setAttribute("position", new THREE.Float32BufferAttribute([0,0.012,0, 200,0.012,0],3));
+  scene.add(new THREE.Line(cl, new THREE.LineBasicMaterial({color:0x33443a})));
+
+  // 距離ラベル
+  const labels=new THREE.Group();
+  for(let D=10; D<=120; D+=10){
+    const sp=makeTextSprite(D+"m","#6c7f86");
+    sp.position.set(D,0.9,-4.2); labels.add(sp);
+  }
+  scene.add(labels);
+
+  // 射手(銃口)マーカー
+  const muzzle=new THREE.Group();
+  const post=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,1,8),
+    new THREE.MeshLambertMaterial({color:0x3a464c}));
+  post.position.y=0.5; muzzle.add(post);
+  const barrel=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.65,10),
+    new THREE.MeshLambertMaterial({color:0x556067}));
+  barrel.rotation.z=-Math.PI/2; barrel.position.set(0.28,1,0); muzzle.add(barrel);
+  scene.add(muzzle);
+
+  // ターゲット(ゼロイン地点)
+  const target=new THREE.Group();
+  const ring=(rad,col)=>{ const m=new THREE.Mesh(new THREE.TorusGeometry(rad,0.022,8,40),
+      new THREE.MeshBasicMaterial({color:col})); m.rotation.y=Math.PI/2; return m; };
+  target.add(ring(0.30,0xff6a5e)); target.add(ring(0.18,0xd9e2e4)); target.add(ring(0.07,0xff6a5e));
+  const tpost=new THREE.Mesh(new THREE.CylinderGeometry(0.025,0.025,1,8),
+    new THREE.MeshLambertMaterial({color:0x3a464c}));
+  target.add(tpost);
+  scene.add(target);
+
+  // BB弾 + グロー
+  const bb=new THREE.Mesh(new THREE.SphereGeometry(0.09,18,14),
+    new THREE.MeshBasicMaterial({color:0xd4ffb8}));
+  scene.add(bb);
+  const glowTex=(()=>{ const c=document.createElement("canvas"); c.width=c.height=128;
+    const g=c.getContext("2d"); const gr=g.createRadialGradient(64,64,0,64,64,64);
+    gr.addColorStop(0,"rgba(180,255,140,1)"); gr.addColorStop(0.35,"rgba(140,255,94,.55)");
+    gr.addColorStop(1,"rgba(140,255,94,0)");
+    g.fillStyle=gr; g.fillRect(0,0,128,128); return new THREE.CanvasTexture(c); })();
+  const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex, blending:THREE.AdditiveBlending, depthWrite:false, transparent:true}));
+  glow.scale.set(1.4,1.4,1); bb.add(glow);
+
+  // 軌跡(トレーサー) + 予告線
+  const MAXPTS=4000;
+  const trailGeo=new THREE.BufferGeometry();
+  trailGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAXPTS*3),3));
+  trailGeo.setDrawRange(0,0);
+  const trail=new THREE.Line(trailGeo, new THREE.LineBasicMaterial({color:0x8cff5e, transparent:true, opacity:.85, blending:THREE.AdditiveBlending}));
+  scene.add(trail);
+  const previewGeo=new THREE.BufferGeometry();
+  previewGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAXPTS*3),3));
+  previewGeo.setDrawRange(0,0);
+  const preview=new THREE.Line(previewGeo, new THREE.LineBasicMaterial({color:0x39554a, transparent:true, opacity:.5}));
+  scene.add(preview);
+
+  // 着弾エフェクト
+  const impact=new THREE.Mesh(new THREE.RingGeometry(0.1,0.16,32),
+    new THREE.MeshBasicMaterial({color:0x8cff5e, transparent:true, opacity:0, side:THREE.DoubleSide}));
+  impact.rotation.x=-Math.PI/2; scene.add(impact);
+
+  T3={renderer,scene,cam,bb,trail,trailGeo,preview,previewGeo,target,impact,box,MAXPTS};
+
+  // 自由視点操作
+  const dom=renderer.domElement;
+  dom.addEventListener("pointerdown",(e)=>{ orbit.dragging=true; orbit.lx=e.clientX; orbit.ly=e.clientY; setCam("free"); dom.setPointerCapture(e.pointerId); });
+  dom.addEventListener("pointermove",(e)=>{ if(!orbit.dragging) return;
+    orbit.yaw -= (e.clientX-orbit.lx)*0.006; orbit.pitch += (e.clientY-orbit.ly)*0.005;
+    orbit.pitch=Math.max(0.05,Math.min(1.35,orbit.pitch)); orbit.lx=e.clientX; orbit.ly=e.clientY; });
+  dom.addEventListener("pointerup",()=>orbit.dragging=false);
+  dom.addEventListener("wheel",(e)=>{ e.preventDefault(); orbit.dist=Math.max(4,Math.min(160,orbit.dist*(1+Math.sign(e.deltaY)*0.1))); setCam("free"); },{passive:false});
+
+  window.addEventListener("resize",()=>{
+    T3.renderer.setSize(box.clientWidth, box.clientHeight);
+    T3.cam.aspect=box.clientWidth/box.clientHeight; T3.cam.updateProjectionMatrix();
+    drawChart();
+  });
+
+  requestAnimationFrame(loop3D);
+}
+
+function rebuild3D(){
+  if(!T3||!S.result) return;
+  const pts=S.result.pts, n=Math.min(pts.length,T3.MAXPTS);
+  const pv=T3.previewGeo.attributes.position.array;
+  for(let i=0;i<n;i++){ pv[i*3]=pts[i].x; pv[i*3+1]=pts[i].z; pv[i*3+2]=0; }
+  T3.previewGeo.setDrawRange(0,n);
+  T3.previewGeo.attributes.position.needsUpdate=true;
+  T3.previewGeo.computeBoundingSphere();
+
+  const zi=S.result.zeroIn;
+  T3.target.visible=!!zi;
+  if(zi){ const th=S.angleDeg*Math.PI/180;
+    const zh=S.h0+Math.tan(th)*zi;
+    T3.target.position.set(zi,0,0);
+    T3.target.children.forEach((c,i)=>{ if(i<3)c.position.y=zh; else {c.scale.y=zh; c.position.y=zh/2;} });
+  }
+  startPlayback();
+}
+
+function startPlayback(){ play.t=0; play.playing=true; play.impactT=-1;
+  if(T3){ T3.trailGeo.setDrawRange(0,0); T3.impact.material.opacity=0; } }
+
+function trajAt(tq){
+  const pts=S.result.pts;
+  if(tq<=0) return pts[0];
+  if(tq>=pts[pts.length-1].t) return pts[pts.length-1];
+  let lo=0, hi=pts.length-1;
+  while(hi-lo>1){ const m=(lo+hi)>>1; (pts[m].t<=tq?lo=m:hi=m); }
+  const a=pts[lo], b=pts[hi], f=(tq-a.t)/(b.t-a.t||1);
+  return { t:tq, x:a.x+f*(b.x-a.x), z:a.z+f*(b.z-a.z), v:a.v+f*(b.v-a.v), w:a.w+f*(b.w-a.w), idx:hi };
+}
+
+let lastFrame=performance.now();
+function loop3D(now){
+  requestAnimationFrame(loop3D);
+  if(!T3||!S.result) return;
+  const dtReal=Math.min(0.05,(now-lastFrame)/1000); lastFrame=now;
+  const r=S.result;
+
+  if(play.playing){
+    play.t += dtReal*play.speed;
+    if(play.t>=r.landT){ play.t=r.landT; play.playing=false; play.impactT=now; }
+  }
+  const p=trajAt(play.t);
+  T3.bb.position.set(p.x,p.z,0);
+  T3.bb.visible = play.playing || (now-play.impactT<200);
+
+  // trail
+  const n=Math.min(p.idx||0, T3.MAXPTS);
+  if(n>0){
+    const tv=T3.trailGeo.attributes.position.array, pts=r.pts;
+    for(let i=0;i<n;i++){ tv[i*3]=pts[i].x; tv[i*3+1]=pts[i].z; tv[i*3+2]=0; }
+    T3.trailGeo.setDrawRange(0,n);
+    T3.trailGeo.attributes.position.needsUpdate=true;
+  }
+  // impact ring
+  if(play.impactT>0){
+    const k=(now-play.impactT)/900;
+    if(k<1){ T3.impact.position.set(r.landX,0.02,0);
+      const s=0.3+k*4; T3.impact.scale.set(s,s,1); T3.impact.material.opacity=0.8*(1-k); }
+    else { T3.impact.material.opacity=0;
+      if(now-play.impactT>1800) startPlayback();   // オートリプレイ
+    }
+  }
+
+  // camera
+  const cam=T3.cam;
+  if(play.camMode==="chase"){
+    const look=new THREE.Vector3(p.x+3,p.z,0);
+    const pos=new THREE.Vector3(p.x-3.2, p.z+1.1, 2.1);
+    cam.position.lerp(pos, 1-Math.pow(0.0005,dtReal));
+    cam.lookAt(look);
+  } else if(play.camMode==="side"){
+    const mid=r.landX/2;
+    const d=Math.max(18, r.landX*0.72);
+    cam.position.lerp(new THREE.Vector3(mid, Math.max(6,r.maxH+4), d), 1-Math.pow(0.001,dtReal));
+    cam.lookAt(mid, Math.max(1,r.maxH*0.5), 0);
+  } else {
+    const cx=r.landX/2;
+    cam.position.set(
+      cx + orbit.dist*Math.cos(orbit.pitch)*Math.sin(orbit.yaw),
+      1 + orbit.dist*Math.sin(orbit.pitch),
+      orbit.dist*Math.cos(orbit.pitch)*Math.cos(orbit.yaw));
+    cam.lookAt(cx,1.5,0);
+  }
+
+  // HUD
+  $("hud").innerHTML =
+    `<span class="dim">DIST</span> ${p.x.toFixed(1).padStart(6)} m<br>`+
+    `<span class="dim">ALT </span> ${p.z.toFixed(2).padStart(6)} m<br>`+
+    `<span class="dim">VEL </span> ${p.v.toFixed(1).padStart(6)} m/s<br>`+
+    `<span class="dim">SPIN</span> ${String(Math.round(p.w)).padStart(6)} r/s<br>`+
+    `<span class="dim">TIME</span> ${p.t.toFixed(3).padStart(6)} s`;
+
+  T3.renderer.render(T3.scene,cam);
+}
+
+function setCam(mode){
+  play.camMode=mode;
+  document.querySelectorAll("[data-cam]").forEach(b=>b.classList.toggle("on", b.dataset.cam===mode));
+}
+
+/* ============================================================
+   UI 配線
+   ============================================================ */
+function bind(){
+  // 初速
+  const syncV0=(v)=>{ S.v0=Math.max(1,Math.min(300,v)); $("v0Val").textContent=S.v0.toFixed(1);
+    $("v0Range").value=Math.min(150,S.v0); $("v0Num").value=S.v0; recompute(); };
+  $("v0Range").addEventListener("input",e=>syncV0(+e.target.value));
+  $("v0Num").addEventListener("change",e=>syncV0(+e.target.value));
+
+  // 重量チップ
+  const masses=[0.12,0.16,0.20,0.25,0.28,0.30];
+  $("massChips").innerHTML = masses.map(m=>`<button class="chip${m===0.20?" on":""}" data-m="${m}">${m.toFixed(2)}g</button>`).join("");
+  const syncMass=(m,fromChip)=>{ S.massG=Math.max(0.01,Math.min(2,m));
+    $("massVal").textContent=S.massG.toFixed(2); $("massNum").value=S.massG;
+    document.querySelectorAll("#massChips .chip").forEach(c=>c.classList.toggle("on", Math.abs(+c.dataset.m-S.massG)<1e-9));
+    recompute(); };
+  $("massChips").addEventListener("click",e=>{ const b=e.target.closest(".chip"); if(b) syncMass(+b.dataset.m,true); });
+  $("massNum").addEventListener("change",e=>syncMass(+e.target.value));
+
+  // ホップモード
+  $("hopChips").addEventListener("click",e=>{
+    const b=e.target.closest(".chip"); if(!b) return;
+    S.hopMode=b.dataset.hop;
+    document.querySelectorAll("#hopChips .chip").forEach(c=>c.classList.toggle("on", c===b));
+    $("manualSpinBox").style.display = S.hopMode==="manual" ? "block" : "none";
+    if(S.hopMode==="manual") S.manualSpin=+$("spinNum").value;
+    recompute();
+  });
+  const syncSpin=(s)=>{ S.manualSpin=Math.max(0,Math.min(1000,Math.round(s)));
+    $("spinRange").value=Math.min(500,S.manualSpin); $("spinNum").value=S.manualSpin;
+    if(S.hopMode==="manual") recompute(); };
+  $("spinRange").addEventListener("input",e=>syncSpin(+e.target.value));
+  $("spinNum").addEventListener("change",e=>syncSpin(+e.target.value));
+
+  // 高さ・仰角
+  $("h0Range").addEventListener("input",e=>{ S.h0=+e.target.value; $("h0Val").textContent=S.h0.toFixed(1); recompute(); });
+  $("angRange").addEventListener("input",e=>{ S.angleDeg=+e.target.value; $("angVal").textContent=S.angleDeg.toFixed(1); recompute(); });
+
+  // 抗力モデル
+  $("dragModel").addEventListener("change",e=>{ S.drag=e.target.value; recompute(); });
+
+  // 3D 操作
+  document.querySelectorAll("[data-cam]").forEach(b=>b.addEventListener("click",()=>setCam(b.dataset.cam)));
+  $("speedSel").addEventListener("change",e=>play.speed=+e.target.value);
+  $("fireBtn").addEventListener("click",startPlayback);
+}
+
+bind();
+init3D();
+recompute();
+</script>
+</body>
+</html>
